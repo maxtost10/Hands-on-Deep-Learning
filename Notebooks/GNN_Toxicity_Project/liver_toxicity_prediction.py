@@ -1,6 +1,6 @@
 #%%
 """
-Liver Toxicity Prediction: GNN (GAT) vs LGBM Comparison
+Liver Toxicity Prediction: GNN (GAT) vs LGBM Comparison - FIXED VERSION
 Target: NR-AhR (Aryl hydrocarbon receptor) hepatotoxicity prediction
 Data: 6,542 molecules with valid liver toxicity labels (11.7% positive)
 """
@@ -20,7 +20,8 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import f1_score, roc_auc_score, precision_recall_curve, confusion_matrix
 from sklearn.preprocessing import StandardScaler
-from imblearn.over_sampling import SMOTE
+from sklearn.utils.class_weight import compute_class_weight
+
 import lightgbm as lgb
 import shap
 
@@ -37,12 +38,41 @@ except ImportError:
 import warnings
 warnings.filterwarnings('ignore')
 
+# CONFIGURATION SETTINGS
+class Config:
+    # Global test mode
+    QUICK_TEST = True  # Set to False for full training
+    
+    # Data settings
+    MAX_MOLECULES = 200 if QUICK_TEST else None
+    
+    # LGBM settings
+    LGBM_ROUNDS = 50 if QUICK_TEST else 1000
+    LGBM_EARLY_STOP = 10 if QUICK_TEST else 50
+    LGBM_LEAVES = 15 if QUICK_TEST else 31
+    
+    # GAT settings  
+    GAT_EPOCHS = 20 if QUICK_TEST else 100
+    GAT_PATIENCE = 5 if QUICK_TEST else 20
+    GAT_HIDDEN = 32 if QUICK_TEST else 64
+    GAT_HEADS = 2 if QUICK_TEST else 4
+    GAT_LAYERS = 2 if QUICK_TEST else 3
+    
+    # Feature settings
+    MORGAN_BITS = 512 if QUICK_TEST else 2048
+    BATCH_SIZE = 64 if QUICK_TEST else 32
+    
+    # Analysis settings
+    SHAP_SAMPLES = 50 if QUICK_TEST else 100
+    TOP_FEATURES = 10 if QUICK_TEST else 20
+
 # Set random seeds for reproducibility
 torch.manual_seed(42)
 np.random.seed(42)
 
-print("🚀 Starting Liver Toxicity Prediction Project")
+print("🚀 Starting Liver Toxicity Prediction Project - FIXED VERSION")
 print("📊 Target: NR-AhR hepatotoxicity (GAT vs LGBM comparison)")
+print(f"⚡ Mode: {'QUICK TEST' if Config.QUICK_TEST else 'FULL TRAINING'}")
 print("="*80)
 
 #%%
@@ -70,26 +100,23 @@ def load_and_prepare_liver_data():
     print(f"✓ Full dataset: {len(dataset):,} molecules")
     print(f"✓ Valid liver labels: {np.sum(valid_mask):,} molecules ({np.sum(valid_mask)/len(dataset)*100:.1f}%)")
     
-    # Sample only subset for testing
-    QUICK_TEST = True  # Set to False for full run
-    
-    if QUICK_TEST:
-        # Use only first 200 molecules instead of all 6,542
-        sample_size = 200
-        valid_indices = valid_indices[:sample_size]
-        liver_molecules = liver_molecules[:sample_size] 
-        liver_targets = liver_targets[:sample_size]
-        print(f"🚀 QUICK TEST MODE: Using only {sample_size} molecules")
-
     # Extract valid samples
     valid_indices = np.where(valid_mask)[0]
+    
+    # QUICK TEST MODE: Sample subset
+    if Config.MAX_MOLECULES and len(valid_indices) > Config.MAX_MOLECULES:
+        print(f"🚀 QUICK TEST MODE: Sampling {Config.MAX_MOLECULES} molecules from {len(valid_indices)}")
+        np.random.seed(42)
+        valid_indices = np.random.choice(valid_indices, Config.MAX_MOLECULES, replace=False)
+    
     liver_molecules = [dataset[i] for i in valid_indices]
-    liver_targets = liver_labels[valid_mask].astype(int)
+    liver_targets = liver_labels[valid_indices].astype(int)
     
     # Class distribution
     n_hepatotoxic = np.sum(liver_targets == 1)
     n_non_hepatotoxic = np.sum(liver_targets == 0)
     
+    print(f"✓ Final dataset size: {len(liver_targets):,} molecules")
     print(f"✓ Class distribution:")
     print(f"  - Non-hepatotoxic: {n_non_hepatotoxic:,} ({n_non_hepatotoxic/len(liver_targets)*100:.1f}%)")
     print(f"  - Hepatotoxic: {n_hepatotoxic:,} ({n_hepatotoxic/len(liver_targets)*100:.1f}%)")
@@ -155,17 +182,16 @@ def extract_molecular_features(molecules, descriptor_names=None):
     feature_names = []
     
     # Generate feature names
-    # Morgan fingerprint bit names
-    morgan_names = [f'Morgan_bit_{i}' for i in range(2048)]
+    morgan_names = [f'Morgan_bit_{i}' for i in range(Config.MORGAN_BITS)]
     feature_names = morgan_names + descriptor_names
     
-    print(f"  - Morgan fingerprints: 2048 bits")
+    print(f"  - Morgan fingerprints: {Config.MORGAN_BITS} bits")
     print(f"  - Molecular descriptors: {len(descriptor_names)} features")
     print(f"  - Total features: {len(feature_names)}")
     
     failed_count = 0
     for i, mol_data in enumerate(molecules):
-        if i % 1000 == 0:
+        if i % 500 == 0:
             print(f"    Processed {i}/{len(molecules)} molecules...")
         
         try:
@@ -175,13 +201,12 @@ def extract_molecular_features(molecules, descriptor_names=None):
             
             if mol is None:
                 failed_count += 1
-                # Fill with zeros if molecule parsing fails
                 features.append(np.zeros(len(feature_names)))
                 continue
             
             # Extract Morgan fingerprints
             morgan_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
-                mol, radius=2, nBits=2048
+                mol, radius=2, nBits=Config.MORGAN_BITS
             )
             morgan_bits = list(morgan_fp)
             
@@ -192,7 +217,7 @@ def extract_molecular_features(molecules, descriptor_names=None):
                     desc_value = getattr(Descriptors, desc_name)(mol)
                     descriptors.append(desc_value)
                 except:
-                    descriptors.append(0.0)  # Default value if descriptor fails
+                    descriptors.append(0.0)
             
             # Combine features
             mol_features = morgan_bits + descriptors
@@ -240,9 +265,59 @@ def prepare_lgbm_data(data_splits):
 lgbm_data, feature_names = prepare_lgbm_data(data_splits)
 
 #%%
-def train_lgbm_with_smote(lgbm_data, feature_names):
-    """Train LGBM model with SMOTE oversampling"""
-    print(f"\n🏗️ PHASE 2: LGBM BASELINE WITH SMOTE")
+def simple_smote_alternative(X, y, random_state=42):
+    """Simple SMOTE alternative using random oversampling with noise"""
+    np.random.seed(random_state)
+    
+    # Separate classes
+    minority_indices = np.where(y == 1)[0]
+    majority_indices = np.where(y == 0)[0]
+    
+    minority_samples = X[minority_indices]
+    minority_labels = y[minority_indices]
+    
+    # Calculate how many samples to generate
+    n_majority = len(majority_indices)
+    n_minority = len(minority_indices)
+    n_to_generate = n_majority - n_minority
+    
+    if n_to_generate <= 0:
+        return X, y
+    
+    print(f"    Generating {n_to_generate} synthetic minority samples...")
+    
+    # Generate synthetic samples by adding small noise to existing minority samples
+    synthetic_samples = []
+    for _ in range(n_to_generate):
+        # Pick a random minority sample
+        base_idx = np.random.choice(len(minority_samples))
+        base_sample = minority_samples[base_idx].copy()
+        
+        # Add small Gaussian noise (only to non-binary features)
+        # Assume first Morgan bits are binary, descriptors are continuous
+        morgan_bits = Config.MORGAN_BITS
+        
+        # Keep Morgan fingerprint bits as is (binary)
+        # Add noise only to molecular descriptors
+        if len(base_sample) > morgan_bits:
+            descriptor_part = base_sample[morgan_bits:]
+            noise = np.random.normal(0, 0.1 * np.std(descriptor_part), len(descriptor_part))
+            base_sample[morgan_bits:] += noise
+            
+            # Ensure non-negative values for descriptors that should be positive
+            base_sample[morgan_bits:] = np.maximum(base_sample[morgan_bits:], 0)
+        
+        synthetic_samples.append(base_sample)
+    
+    # Combine original and synthetic data
+    X_resampled = np.vstack([X, np.array(synthetic_samples)])
+    y_resampled = np.hstack([y, np.ones(n_to_generate)])
+    
+    return X_resampled, y_resampled
+
+def train_lgbm_with_class_weights(lgbm_data, feature_names):
+    """Train LGBM model with class weights instead of SMOTE"""
+    print(f"\n🏗️ PHASE 2: LGBM BASELINE WITH CLASS WEIGHTING")
     print("-" * 50)
     
     if lgbm_data is None:
@@ -259,18 +334,22 @@ def train_lgbm_with_smote(lgbm_data, feature_names):
     print(f"  - Class 0 (non-hepatotoxic): {np.sum(y_train==0)}")
     print(f"  - Class 1 (hepatotoxic): {np.sum(y_train==1)}")
     
-    # Apply SMOTE oversampling
-    print(f"\nApplying SMOTE oversampling...")
-    smote = SMOTE(random_state=42, k_neighbors=5)
-    X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
+    # Option 1: Use simple oversampling alternative
+    print(f"\nApplying simple oversampling...")
+    X_train_balanced, y_train_balanced = simple_smote_alternative(X_train, y_train)
     
-    print(f"After SMOTE: {X_train_smote.shape}")
-    print(f"  - Class 0 (non-hepatotoxic): {np.sum(y_train_smote==0)}")
-    print(f"  - Class 1 (hepatotoxic): {np.sum(y_train_smote==1)}")
-    print(f"  - Balance ratio: {np.sum(y_train_smote==0)/np.sum(y_train_smote==1):.1f}:1")
+    print(f"After oversampling: {X_train_balanced.shape}")
+    print(f"  - Class 0 (non-hepatotoxic): {np.sum(y_train_balanced==0)}")
+    print(f"  - Class 1 (hepatotoxic): {np.sum(y_train_balanced==1)}")
+    
+    # Calculate class weights for additional emphasis
+    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+    scale_pos_weight = class_weights[1] / class_weights[0]
+    
+    print(f"  - Calculated scale_pos_weight: {scale_pos_weight:.2f}")
     
     # Prepare LightGBM datasets
-    train_data = lgb.Dataset(X_train_smote, label=y_train_smote)
+    train_data = lgb.Dataset(X_train_balanced, label=y_train_balanced)
     val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
     
     # LightGBM parameters
@@ -278,12 +357,13 @@ def train_lgbm_with_smote(lgbm_data, feature_names):
         'objective': 'binary',
         'metric': 'binary_logloss',
         'boosting_type': 'gbdt',
-        'num_leaves': 31,
+        'num_leaves': Config.LGBM_LEAVES,
         'learning_rate': 0.1,
         'feature_fraction': 0.8,
         'bagging_fraction': 0.8,
         'bagging_freq': 5,
-        'min_child_samples': 20,
+        'min_child_samples': 10,
+        'scale_pos_weight': scale_pos_weight,  # Additional class weighting
         'random_state': 42,
         'verbose': -1
     }
@@ -297,10 +377,10 @@ def train_lgbm_with_smote(lgbm_data, feature_names):
         train_data,
         valid_sets=[train_data, val_data],
         valid_names=['train', 'val'],
-        num_boost_round=1000,
+        num_boost_round=Config.LGBM_ROUNDS,
         callbacks=[
-            lgb.early_stopping(stopping_rounds=50),
-            lgb.log_evaluation(period=100)
+            lgb.early_stopping(stopping_rounds=Config.LGBM_EARLY_STOP),
+            lgb.log_evaluation(period=max(1, Config.LGBM_ROUNDS // 10))
         ]
     )
     
@@ -332,17 +412,20 @@ def train_lgbm_with_smote(lgbm_data, feature_names):
         'val_predictions': y_val_pred,
         'val_probabilities': y_val_pred_proba,
         'feature_names': feature_names,
-        'smote_applied': True
+        'oversampling_applied': True
     }
     
     return lgbm_results
 
 # Train LGBM model
-lgbm_results = train_lgbm_with_smote(lgbm_data, feature_names)
+lgbm_results = train_lgbm_with_class_weights(lgbm_data, feature_names)
 
 #%%
-def analyze_lgbm_interpretability(lgbm_results, lgbm_data, top_n=20):
+def analyze_lgbm_interpretability(lgbm_results, lgbm_data, top_n=None):
     """Analyze LGBM feature importance using SHAP"""
+    if top_n is None:
+        top_n = Config.TOP_FEATURES
+        
     print(f"\n🔍 LGBM INTERPRETABILITY ANALYSIS")
     print("-" * 40)
     
@@ -361,9 +444,8 @@ def analyze_lgbm_interpretability(lgbm_results, lgbm_data, top_n=20):
     print(f"  - Test samples: {X_test.shape[0]}")
     print(f"  - Features: {X_test.shape[1]}")
     
-    # Create SHAP explainer
     # Use a subset for faster computation
-    shap_sample_size = min(100, X_test.shape[0])
+    shap_sample_size = min(Config.SHAP_SAMPLES, X_test.shape[0])
     X_shap = X_test[:shap_sample_size]
     
     print(f"  - Using {shap_sample_size} samples for SHAP analysis...")
@@ -394,39 +476,24 @@ def analyze_lgbm_interpretability(lgbm_results, lgbm_data, top_n=20):
             feature_type = "Morgan" if row['feature'].startswith('Morgan') else "Descriptor"
             print(f"{i+1:2d}. {row['feature']:25} | {row['shap_importance']:8.4f} | {feature_type}")
         
-        # Visualizations
-        fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+        # Create visualization
+        plt.figure(figsize=(12, 8))
         
         # Feature importance bar plot
         top_features = importance_df.head(top_n)
-        axes[0].barh(range(len(top_features)), top_features['shap_importance'], 
-                    color='skyblue', alpha=0.7)
-        axes[0].set_yticks(range(len(top_features)))
-        axes[0].set_yticklabels([f.replace('Morgan_bit_', 'M') for f in top_features['feature']], fontsize=8)
-        axes[0].set_xlabel('Mean |SHAP value|')
-        axes[0].set_title(f'Top {top_n} Feature Importance (SHAP)')
-        axes[0].invert_yaxis()
-        
-        # SHAP summary plot (if possible)
-        try:
-            # Use top features for summary plot
-            top_indices = importance_df.head(15).index.tolist()
-            shap.summary_plot(shap_values[:, top_indices], 
-                            X_shap[:, top_indices],
-                            feature_names=[feature_names[i] for i in top_indices],
-                            show=False, max_display=15)
-            plt.title('SHAP Summary Plot (Top 15 Features)')
-            plt.tight_layout()
-            axes[1].axis('off')  # Hide the second subplot
-        except:
-            # Fallback: simple feature type distribution
-            feature_types = ['Morgan' if f.startswith('Morgan') else 'Descriptor' 
-                           for f in top_features['feature']]
-            type_counts = pd.Series(feature_types).value_counts()
-            axes[1].pie(type_counts.values, labels=type_counts.index, autopct='%1.1f%%')
-            axes[1].set_title('Top Features by Type')
-        
+        plt.barh(range(len(top_features)), top_features['shap_importance'], 
+                color='skyblue', alpha=0.7)
+        plt.yticks(range(len(top_features)), 
+                   [f.replace('Morgan_bit_', 'M') for f in top_features['feature']])
+        plt.xlabel('Mean |SHAP value|')
+        plt.title(f'Top {top_n} Feature Importance (SHAP) - Liver Toxicity Prediction')
+        plt.gca().invert_yaxis()
+        plt.grid(axis='x', alpha=0.3)
         plt.tight_layout()
+        
+        # Save figure
+        import os
+        os.makedirs('./Figures', exist_ok=True)
         plt.savefig('./Figures/lgbm_interpretability.png', dpi=300, bbox_inches='tight')
         plt.show()
         
@@ -461,7 +528,8 @@ def analyze_lgbm_interpretability(lgbm_results, lgbm_data, top_n=20):
 lgbm_interpretability = analyze_lgbm_interpretability(lgbm_results, lgbm_data)
 
 print(f"\n✅ LGBM BASELINE COMPLETE!")
-print(f"📊 Best validation F1-score: {lgbm_results['val_f1']:.4f}")
+if lgbm_results:
+    print(f"📊 Best validation F1-score: {lgbm_results['val_f1']:.4f}")
 
 #%%
 """
