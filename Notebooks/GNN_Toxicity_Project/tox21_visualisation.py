@@ -64,11 +64,17 @@ def load_and_prepare_data():
 dataset, all_labels, task_names = load_and_prepare_data()
 
 #%%
-def analyze_class_distributions(all_labels, task_names):
+def analyze_class_distributions(all_labels, task_names, save_figures=True):
     """Analyze and visualize class distributions for all tasks"""
+    import os
+    
     print("\n" + "="*60)
     print("CLASS DISTRIBUTION ANALYSIS")
     print("="*60)
+    
+    # Create figures directory if it doesn't exist
+    if save_figures:
+        os.makedirs('./Figures', exist_ok=True)
     
     # Calculate statistics for each task
     task_stats = []
@@ -134,6 +140,14 @@ def analyze_class_distributions(all_labels, task_names):
             ax.tick_params(axis='y', labelsize=9)
     
     plt.tight_layout()
+    
+    # Save figure if requested
+    if save_figures:
+        filename = f'class_distributions.png'
+        filepath = os.path.join('./Figures', filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"✓ Figure saved: {filepath}")
+    
     plt.show()
     
     # Print summary table
@@ -148,11 +162,17 @@ def analyze_class_distributions(all_labels, task_names):
 stats_df = analyze_class_distributions(all_labels, task_names)
 
 #%%
-def visualize_molecular_examples(dataset, all_labels, task_names, num_examples=6):
+def visualize_molecular_examples(dataset, all_labels, task_names, num_examples=6, save_figures=True):
     """Visualize molecular graph examples for toxic vs non-toxic"""
+    import os
+    
     print("\n" + "="*60)
     print("MOLECULAR GRAPH VISUALIZATION")
     print("="*60)
+    
+    # Create figures directory if it doesn't exist
+    if save_figures:
+        os.makedirs('./Figures', exist_ok=True)
     
     # Focus on NR-AhR task (liver toxicity, index 2)
     focus_task_idx = 2
@@ -173,6 +193,31 @@ def visualize_molecular_examples(dataset, all_labels, task_names, num_examples=6
     np.random.seed(42)
     sample_toxic = np.random.choice(toxic_indices, min(num_examples//2, len(toxic_indices)), replace=False)
     sample_non_toxic = np.random.choice(non_toxic_indices, min(num_examples//2, len(non_toxic_indices)), replace=False)
+    
+    # Print one raw datapoint example
+    print("\n" + "-"*40)
+    print("RAW DATAPOINT EXAMPLE:")
+    print("-"*40)
+    example_idx = sample_toxic[0]
+    example_data = dataset[example_idx]
+    print(f"Molecule index: {example_idx}")
+    print(f"SMILES: {example_data.smiles}")
+    print(f"Node features shape: {example_data.x.shape}")
+    print(f"Edge index shape: {example_data.edge_index.shape}")
+    print(f"Edge attributes shape: {example_data.edge_attr.shape}")
+    print(f"Labels shape: {example_data.y.shape}")
+    print(f"All labels: {example_data.y.numpy().flatten()}")
+    print(f"Label for {focus_task_name}: {example_data.y.numpy().flatten()[focus_task_idx]}")
+    print(f"First 3 node features:")
+    for i in range(min(3, example_data.x.shape[0])):
+        print(f"  Node {i}: {example_data.x[i].numpy()}")
+    print(f"First 3 edge indices:")
+    for i in range(min(3, example_data.edge_index.shape[1])):
+        print(f"  Edge {i}: {example_data.edge_index[:, i].numpy()} (connects atoms {example_data.edge_index[0, i].item()} → {example_data.edge_index[1, i].item()})")
+    print(f"First 3 edge attributes:")
+    for i in range(min(3, example_data.edge_attr.shape[0])):
+        print(f"  Edge attr {i}: {example_data.edge_attr[i].numpy()}")
+    print("-"*40)
     
     # Create visualization
     fig, axes = plt.subplots(2, num_examples//2, figsize=(15, 8))
@@ -203,6 +248,14 @@ def visualize_molecular_examples(dataset, all_labels, task_names, num_examples=6
         ax.axis('off')
     
     plt.tight_layout()
+    
+    # Save figure if requested
+    if save_figures:
+        filename = f'molecular_graphs_{focus_task_name}.png'
+        filepath = os.path.join('./Figures', filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"✓ Figure saved: {filepath}")
+    
     plt.show()
     
     return sample_toxic, sample_non_toxic
@@ -344,11 +397,18 @@ def analyze_molecular_properties(dataset, all_labels, task_names):
 analyze_molecular_properties(dataset, all_labels, task_names)
 
 #%%
-def analyze_task_correlations(all_labels, task_names):
+def analyze_task_correlations(all_labels, task_names, save_figures=True):
     """Analyze correlations between different toxicity tasks"""
+    import os
+    from datetime import datetime
+    
     print("\n" + "="*60)
     print("TASK CORRELATION ANALYSIS")
     print("="*60)
+    
+    # Create figures directory if it doesn't exist
+    if save_figures:
+        os.makedirs('./Figures', exist_ok=True)
     
     # Calculate correlation matrix for valid labels only
     n_tasks = len(task_names)
@@ -382,6 +442,14 @@ def analyze_task_correlations(all_labels, task_names):
     plt.xticks(rotation=45, ha='right')
     plt.yticks(rotation=0)
     plt.tight_layout()
+    
+    # Save figure if requested
+    if save_figures:
+        filename = 'task_correlations.png'
+        filepath = os.path.join('./Figures', filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"✓ Figure saved: {filepath}")
+    
     plt.show()
     
     # Find highest correlations
@@ -401,11 +469,18 @@ def analyze_task_correlations(all_labels, task_names):
 analyze_task_correlations(all_labels, task_names)
 
 #%%
-def analyze_missing_data_patterns(all_labels, task_names):
+def analyze_missing_data_patterns(all_labels, task_names, save_figures=True):
     """Visualize missing data patterns"""
+    import os
+    from datetime import datetime
+    
     print("\n" + "="*60)
     print("MISSING DATA PATTERN ANALYSIS")
     print("="*60)
+    
+    # Create figures directory if it doesn't exist
+    if save_figures:
+        os.makedirs('./Figures', exist_ok=True)
     
     missing_matrix = np.isnan(all_labels)
     
@@ -441,6 +516,14 @@ def analyze_missing_data_patterns(all_labels, task_names):
     plt.yticks(range(len(task_names)), task_names)
     plt.colorbar(label='Missing (1) / Present (0)')
     plt.tight_layout()
+    
+    # Save figure if requested
+    if save_figures:
+        filename = f'missing_data_patterns.png'
+        filepath = os.path.join('./Figures', filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"✓ Figure saved: {filepath}")
+    
     plt.show()
 
 # Analyze missing data patterns
