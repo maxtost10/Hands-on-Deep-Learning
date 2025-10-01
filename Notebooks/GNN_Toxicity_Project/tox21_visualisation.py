@@ -1,3 +1,4 @@
+#%%
 """
 Tox21 Dataset Visualization Script
 Based on the discovered structure: 7823 molecules, 12 tasks, labels shape (1, 12)
@@ -32,6 +33,7 @@ import networkx as nx
 plt.style.use('default')
 sns.set_palette("husl")
 
+#%%
 def load_and_prepare_data():
     """Load dataset and prepare labels for analysis"""
     print("Loading Tox21 dataset...")
@@ -58,6 +60,10 @@ def load_and_prepare_data():
     
     return dataset, all_labels, task_names
 
+# Load data
+dataset, all_labels, task_names = load_and_prepare_data()
+
+#%%
 def analyze_class_distributions(all_labels, task_names):
     """Analyze and visualize class distributions for all tasks"""
     print("\n" + "="*60)
@@ -138,6 +144,10 @@ def analyze_class_distributions(all_labels, task_names):
     
     return stats_df
 
+# Analyze class distributions
+stats_df = analyze_class_distributions(all_labels, task_names)
+
+#%%
 def visualize_molecular_examples(dataset, all_labels, task_names, num_examples=6):
     """Visualize molecular graph examples for toxic vs non-toxic"""
     print("\n" + "="*60)
@@ -197,6 +207,10 @@ def visualize_molecular_examples(dataset, all_labels, task_names, num_examples=6
     
     return sample_toxic, sample_non_toxic
 
+# Visualize molecular examples
+toxic_examples, non_toxic_examples = visualize_molecular_examples(dataset, all_labels, task_names)
+
+#%%
 def analyze_molecular_properties(dataset, all_labels, task_names):
     """Analyze molecular properties and their relationship to toxicity"""
     print("\n" + "="*60)
@@ -326,6 +340,10 @@ def analyze_molecular_properties(dataset, all_labels, task_names):
     print("\nNON-TOXIC molecules:")
     print(non_toxic_summary)
 
+# Analyze molecular properties
+analyze_molecular_properties(dataset, all_labels, task_names)
+
+#%%
 def analyze_task_correlations(all_labels, task_names):
     """Analyze correlations between different toxicity tasks"""
     print("\n" + "="*60)
@@ -379,6 +397,10 @@ def analyze_task_correlations(all_labels, task_names):
     for task1, task2, corr in correlations[:10]:
         print(f"{task1:15} ↔ {task2:15}: {corr:6.3f}")
 
+# Analyze task correlations
+analyze_task_correlations(all_labels, task_names)
+
+#%%
 def analyze_missing_data_patterns(all_labels, task_names):
     """Visualize missing data patterns"""
     print("\n" + "="*60)
@@ -421,32 +443,14 @@ def analyze_missing_data_patterns(all_labels, task_names):
     plt.tight_layout()
     plt.show()
 
-def main():
-    """Main visualization function"""
-    print("="*80)
-    print("TOX21 DATASET VISUALIZATION")
-    print("="*80)
-    
-    # Load and prepare data
-    dataset, all_labels, task_names = load_and_prepare_data()
-    
-    # 1. Class distribution analysis
-    stats_df = analyze_class_distributions(all_labels, task_names)
-    
-    # 2. Molecular graph examples
-    toxic_examples, non_toxic_examples = visualize_molecular_examples(dataset, all_labels, task_names)
-    
-    # 3. Molecular property analysis
-    analyze_molecular_properties(dataset, all_labels, task_names)
-    
-    # 4. Task correlations
-    analyze_task_correlations(all_labels, task_names)
-    
-    # 5. Missing data patterns
-    analyze_missing_data_patterns(all_labels, task_names)
-    
+# Analyze missing data patterns
+analyze_missing_data_patterns(all_labels, task_names)
+
+#%%
+def print_summary():
+    """Print final summary"""
     print("\n" + "="*80)
-    print("VISUALIZATION COMPLETE!")
+    print("TOX21 DATASET VISUALIZATION COMPLETE!")
     print("="*80)
     print("Key insights:")
     print("- 12 different toxicity assays with varying class imbalances")
@@ -454,6 +458,26 @@ def main():
     print("- Molecular graphs show structural diversity")
     print("- Some tasks are correlated, suggesting related biological pathways")
     print("- Ready for machine learning model development!")
+    print("\nNext steps for your project:")
+    print("1. Choose 1-2 specific tasks for focused modeling")
+    print("2. Implement GNN baseline (GCN/GAT)")
+    print("3. Add XGBoost comparison on molecular fingerprints")
+    print("4. Implement explainability (SHAP, attention)")
+    print("5. Connect predictions to known toxicophores")
 
-if __name__ == "__main__":
-    main()
+# Print summary
+print_summary()
+
+#%%
+# Quick data access for further analysis
+print("Data variables available for further analysis:")
+print(f"- dataset: {type(dataset)} with {len(dataset)} molecules")
+print(f"- all_labels: {all_labels.shape} numpy array")
+print(f"- task_names: {len(task_names)} tasks")
+print(f"- stats_df: DataFrame with task statistics")
+print("\nExample usage:")
+print("# Focus on NR-AhR task (liver toxicity)")
+print("focus_task = 2")
+print("task_labels = all_labels[:, focus_task]")
+print("valid_mask = ~np.isnan(task_labels)")
+print("print(f'Valid samples for {task_names[focus_task]}: {np.sum(valid_mask)}')")
