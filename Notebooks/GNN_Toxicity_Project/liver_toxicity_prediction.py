@@ -70,6 +70,17 @@ def load_and_prepare_liver_data():
     print(f"✓ Full dataset: {len(dataset):,} molecules")
     print(f"✓ Valid liver labels: {np.sum(valid_mask):,} molecules ({np.sum(valid_mask)/len(dataset)*100:.1f}%)")
     
+    # Sample only subset for testing
+    QUICK_TEST = True  # Set to False for full run
+    
+    if QUICK_TEST:
+        # Use only first 200 molecules instead of all 6,542
+        sample_size = 200
+        valid_indices = valid_indices[:sample_size]
+        liver_molecules = liver_molecules[:sample_size] 
+        liver_targets = liver_targets[:sample_size]
+        print(f"🚀 QUICK TEST MODE: Using only {sample_size} molecules")
+
     # Extract valid samples
     valid_indices = np.where(valid_mask)[0]
     liver_molecules = [dataset[i] for i in valid_indices]
@@ -633,7 +644,7 @@ def train_gat_model(gnn_loaders, data_splits, node_features_dim, device='cuda'):
     scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True)
     
     # Training parameters
-    num_epochs = 100
+    num_epochs = 2
     best_val_f1 = 0.0
     best_model_state = None
     patience_counter = 0
