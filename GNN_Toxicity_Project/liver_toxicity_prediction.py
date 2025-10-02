@@ -41,7 +41,7 @@ warnings.filterwarnings('ignore')
 # CONFIGURATION SETTINGS
 class Config:
     # Global test mode
-    QUICK_TEST = True  # Set to False for full training
+    QUICK_TEST = False  # Set to False for full training
     
     # Data settings
     MAX_MOLECULES = 200 if QUICK_TEST else None
@@ -712,7 +712,7 @@ def train_gat_model(gnn_loaders, data_splits, node_features_dim, device='cuda'):
     scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10)
     
     # Training parameters
-    num_epochs = 20
+    num_epochs = 20 if Config.QUICK_TEST else 100
     best_val_f1 = 0.0
     best_model_state = None
     patience_counter = 0
@@ -1605,8 +1605,8 @@ def create_project_summary_report():
     print(f"      - Training time: {gat_results['training_time']/60:.1f} minutes")
     
     print(f"\n🎯 FINAL TEST RESULTS:")
-    print(f"   Model    │ F1-Score │ ROC-AUC │ Precision │ Recall │ Specificity")
-    print(f"   ─────────┼──────────┼─────────┼───────────┼────────┼────────────")
+    print(f"   Model    │ F1-Score │ ROC-AUC │ Precision  │ Recall  │ Specificity")
+    print(f"   ─────────┼──────────┼─────────┼────────────┼─────────┼────────────")
     print(f"   LGBM     │  {test_results['lgbm']['f1']:.4f}  │ {test_results['lgbm']['auc']:.4f}  │   {test_results['lgbm']['precision']:.4f}   │ {test_results['lgbm']['recall']:.4f} │   {test_results['lgbm']['specificity']:.4f}")
     print(f"   GAT      │  {test_results['gat']['f1']:.4f}  │ {test_results['gat']['auc']:.4f}  │   {test_results['gat']['precision']:.4f}   │ {test_results['gat']['recall']:.4f} │   {test_results['gat']['specificity']:.4f}")
     
@@ -1639,8 +1639,3 @@ def create_project_summary_report():
     print("=" * 80)
 
 create_project_summary_report()
-
-print(f"\n🎉 PROJECT COMPLETED SUCCESSFULLY!")
-print(f"📂 All figures saved to ./Figures/ directory")
-print(f"📊 Models ready for demonstration and discussion")
-print(f"⏰ Total project time: ~3 hours (as planned)")
