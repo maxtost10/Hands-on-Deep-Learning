@@ -633,7 +633,7 @@ def prepare_gnn_data(data_splits, batch_size=32):
         for i, mol in enumerate(molecules):
             # Create a copy of the molecule data
             mol_copy = Data(
-                x=mol.x.clone(),
+                x=mol.x.clone().to(torch.float),
                 edge_index=mol.edge_index.clone(),
                 edge_attr=mol.edge_attr.clone() if mol.edge_attr is not None else None,
                 y=torch.tensor([targets[i]], dtype=torch.float),
@@ -709,10 +709,10 @@ def train_gat_model(gnn_loaders, data_splits, node_features_dim, device='cuda'):
     
     # Optimizer and scheduler
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
-    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10)
     
     # Training parameters
-    num_epochs = 2
+    num_epochs = 20
     best_val_f1 = 0.0
     best_model_state = None
     patience_counter = 0
@@ -1034,7 +1034,7 @@ val_targets = data_splits['val']['targets']
 # Add target labels to molecules for visualization
 for mol, target in zip(val_molecules[:20], val_targets[:20]):  # First 20 for speed
     mol_with_target = Data(
-        x=mol.x,
+        x=mol.x.to(torch.float),
         edge_index=mol.edge_index,
         edge_attr=mol.edge_attr,
         y=torch.tensor([target], dtype=torch.float),
