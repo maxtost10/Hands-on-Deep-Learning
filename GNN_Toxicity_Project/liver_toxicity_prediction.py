@@ -41,7 +41,7 @@ warnings.filterwarnings('ignore')
 # CONFIGURATION SETTINGS
 class Config:
     # Global test mode
-    QUICK_TEST = False  # Set to False for full training
+    QUICK_TEST = True  # Set to False for full training
     
     # Data settings
     MAX_MOLECULES = 200 if QUICK_TEST else None
@@ -1575,34 +1575,6 @@ generate_final_insights(test_results, lgbm_results, gat_results)
 
 #%%
 def create_project_summary_report():
-    """Create final project summary for interview"""
-    print(f"\n📋 PROJECT SUMMARY REPORT")
-    print("=" * 80)
-    print(f"🏥 LIVER TOXICITY PREDICTION: GAT vs LGBM COMPARISON")
-    print(f"👤 Analyst: maxtost10")
-    print(f"📅 Completed: 2025-10-01 15:13:54 UTC")
-    print("=" * 80)
-    
-    print(f"\n📊 DATASET OVERVIEW:")
-    print(f"   • Source: Tox21 Challenge Dataset (FDA/NIH)")
-    print(f"   • Target: NR-AhR (Aryl hydrocarbon receptor) hepatotoxicity")
-    print(f"   • Samples: 6,542 molecules with valid liver toxicity labels")
-    print(f"   • Class balance: 11.7% hepatotoxic (768) vs 88.3% non-hepatotoxic (5,774)")
-    print(f"   • Split: 70% train / 15% validation / 15% test (stratified)")
-    
-    print(f"\n🏗️ MODEL IMPLEMENTATIONS:")
-    print(f"   📈 LGBM Baseline:")
-    print(f"      - Features: 2048 Morgan fingerprints + 10 molecular descriptors")
-    print(f"      - Class imbalance: SMOTE oversampling")
-    print(f"      - Interpretability: SHAP feature importance")
-    print(f"      - Training time: ~2 minutes")
-    
-    print(f"   🧠 GAT Model:")
-    print(f"      - Architecture: 3-layer Graph Attention Network")
-    print(f"      - Features: 9D node features, 3D edge features")
-    print(f"      - Class imbalance: Weighted loss function")
-    print(f"      - Interpretability: Attention weight visualization")
-    print(f"      - Training time: {gat_results['training_time']/60:.1f} minutes")
     
     print(f"\n🎯 FINAL TEST RESULTS:")
     print(f"   Model    │ F1-Score │ ROC-AUC │ Precision  │ Recall  │ Specificity")
@@ -1612,30 +1584,96 @@ def create_project_summary_report():
     
     winner = "GAT" if test_results['gat']['f1'] > test_results['lgbm']['f1'] else "LGBM"
     print(f"   Winner: {winner}")
-    
-    print(f"\n✅ PROJECT ACHIEVEMENTS:")
-    print(f"   ✓ Successfully implemented modern GNN (GAT) for molecular toxicity")
-    print(f"   ✓ Established competitive LGBM baseline with proper class balancing")
-    print(f"   ✓ Handled real-world challenges: missing data, class imbalance")
-    print(f"   ✓ Applied appropriate evaluation methodology")
-    print(f"   ✓ Provided interpretable results with biological relevance")
-    print(f"   ✓ Demonstrated understanding of both classical ML and deep learning")
-    
-    print(f"\n🔬 BIOLOGICAL INSIGHTS:")
-    print(f"   • Both models identify hepatotoxic molecular patterns")
-    print(f"   • GAT attention reveals novel atom-level toxicity mechanisms")
-    print(f"   • LGBM SHAP highlights established toxicophores")
-    print(f"   • Results support early-stage drug safety screening")
-    
-    print(f"\n🎓 INTERVIEW TALKING POINTS:")
-    print(f"   1. Pharmaceutical domain expertise: Chose liver toxicity (DILI)")
-    print(f"   2. Technical implementation: GAT vs LGBM comparison")
-    print(f"   3. Real-world challenges: Class imbalance, missing data")
-    print(f"   4. Interpretability: Attention weights and SHAP values")
-    print(f"   5. Biological relevance: NR-AhR pathway in hepatotoxicity")
-    print(f"   6. Evaluation rigor: Stratified splits, multiple metrics")
-    
-    print(f"\n🚀 READY FOR DEPLOYMENT!")
-    print("=" * 80)
+
 
 create_project_summary_report()
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+# --- Step 1: SMILES and names ---
+drug_info = [
+    {
+    "name": "Troglitazone",
+    "smiles": "O=C1NC(=O)SC1Cc4ccc(OCC3(Oc2c(c(c(O)c(c2CC3)C)C)C)C)cc4"
+    },
+    {
+    "name": "Rosiglitazone",
+    "smiles": "O=C1NC(=O)SC1Cc3ccc(OCCN(c2ncccc2)C)cc3"
+    },
+    {
+    "name": "Pioglitazone",
+    "smiles": "CCc1ccc(cn1)CCOc2ccc(CC3SC(=O)NC3=O)cc2"
+    }
+]
+
+# --- Step 2: LGBM Predictions ---
+lgbm_probs = []
+if RDKIT_AVAILABLE and lgbm_results is not None:
+    # Prepare dummy Data objects for feature extraction
+    mol_objs = []
+    for drug in drug_info:
+        mol = type('obj', (object,), {})()
+        mol.smiles = drug['smiles']
+        mol_objs.append(mol)
+    X_query, _ = extract_molecular_features(mol_objs, descriptor_names=feature_names[-10:])
+    lgbm_probs = lgbm_results['model'].predict(X_query, num_iteration=lgbm_results['model'].best_iteration)
+else:
+    lgbm_probs = [np.nan] * 3
+
+# --- Step 3: GAT Predictions ---
+gat_probs = []
+def smiles_to_pyg_data(smiles):
+    from torch_geometric.datasets.molecule_net import smiles2graph
+    from torch_geometric.data import Data
+    graph = smiles2graph(smiles)
+    data = Data()
+    data.x = torch.tensor(graph['node_feat'], dtype=torch.float)
+    data.edge_index = torch.tensor(graph['edge_index'], dtype=torch.long)
+    data.edge_attr = torch.tensor(graph['edge_feat'], dtype=torch.float)
+    data.smiles = smiles
+    return data
+
+if gat_results is not None:
+    gat_model = gat_results['model']
+    device = gat_results['device']
+    gat_model.eval()
+    for drug in drug_info:
+        try:
+            pyg_data = smiles_to_pyg_data(drug['smiles'])
+            pyg_data = pyg_data.to(device)
+            pyg_data.batch = torch.zeros(pyg_data.x.shape[0], dtype=torch.long, device=device)
+            with torch.no_grad():
+                logits = gat_model(pyg_data.x, pyg_data.edge_index, pyg_data.batch)
+                prob = torch.sigmoid(logits.squeeze()).item()
+            gat_probs.append(prob)
+        except Exception as e:
+            gat_probs.append(np.nan)
+else:
+    gat_probs = [np.nan] * 3
+
+# --- Step 4: Plotting ---
+labels = [drug['name'] for drug in drug_info]
+x = np.arange(len(labels))
+width = 0.32
+
+plt.figure(figsize=(8, 5))
+plt.bar(x - width/2, lgbm_probs, width, label='LGBM', color='#4e79a7')
+plt.bar(x + width/2, gat_probs, width, label='GAT', color='#f28e2b')
+# Draw threshold line at 0.5
+plt.axhline(0.5, color='gray', linestyle='--', lw=1, alpha=0.7)
+plt.xticks(x, labels)
+plt.ylim(0, 1.05)
+plt.ylabel('Predicted Probability of Hepatotoxicity')
+plt.title('Predicted Hepatotoxicity for Thiazolidinediones')
+plt.legend()
+plt.tight_layout()
+plt.savefig('thiazolidinedione_hepatotoxicity_pred.png', dpi=300)
+plt.show()
+
+# --- Step 5: Print values for the report ---
+print("\nModel predictions for supervisor report:")
+for i, name in enumerate(labels):
+    print(f"{name:15s} | LGBM: {lgbm_probs[i]:.3f} | GAT: {gat_probs[i]:.3f}")
+
+print("\nFigure saved as: thiazolidinedione_hepatotoxicity_pred.png")
