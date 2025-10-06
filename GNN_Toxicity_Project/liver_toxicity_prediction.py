@@ -1623,15 +1623,54 @@ else:
 
 # --- Step 3: GAT Predictions ---
 gat_probs = []
-def smiles_to_pyg_data(smiles):
-    from torch_geometric.datasets.molecule_net import smiles2graph
-    from torch_geometric.data import Data
-    graph = smiles2graph(smiles)
-    data = Data()
-    data.x = torch.tensor(graph['node_feat'], dtype=torch.float)
-    data.edge_index = torch.tensor(graph['edge_index'], dtype=torch.long)
-    data.edge_attr = torch.tensor(graph['edge_feat'], dtype=torch.float)
-    data.smiles = smiles
+import torch
+from rdkit import Chem
+from torch_geometric.data import Data
+
+def atom_features(atom):
+    # Example: one-hot for atom type (C, N, O, S, F, Cl, others), degree, aromaticity
+    atom_type_list = ['C', 'N', 'O', 'S', 'F', 'Cl']
+    atom_type = [int(atom.GetSymbol() == s) for s in atom_type_list]
+    atom_type.append(int(atom.GetSymbol() not in atom_type_list))
+    degree = [atom.GetDegree() / 4]  # Normalized degree (0-4)
+    aromatic = [int(atom.GetIsAromatic())]
+    return torch.tensor(atom_type + degree + aromatic, dtype=torch.float)
+
+def bond_features(bond):
+    # Example: one-hot for bond type (SINGLE, DOUBLE, TRIPLE, AROMATIC)
+    bond_type = [0, 0, 0, 0]
+    if bond is not None:
+        b = bond.GetBondType()
+        bond_type = [
+            int(b == Chem.rdchem.BondType.SINGLE),
+            int(b == Chem.rdchem.BondType.DOUBLE),
+            int(b == Chem.rdchem.BondType.TRIPLE),
+            int(b == Chem.rdchem.BondType.AROMATIC)
+        ]
+    return torch.tensor(bond_type, dtype=torch.float)
+
+def smiles_to_pyg_data_rdkit(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return None
+    # Nodes
+    x = torch.stack([atom_features(atom) for atom in mol.GetAtoms()])
+    # Edges
+    edge_index = []
+    edge_attr = []
+    for bond in mol.GetBonds():
+        start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        # Add both directions
+        edge_index += [[start, end], [end, start]]
+        edge_attr += [bond_features(bond), bond_features(bond)]
+    if len(edge_index) == 0:
+        # Handle single-atom molecules (rare)
+        edge_index = torch.empty((2, 0), dtype=torch.long)
+        edge_attr = torch.empty((0, 4), dtype=torch.float)
+    else:
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        edge_attr = torch.stack(edge_attr)
+    data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, smiles=smiles)
     return data
 
 if gat_results is not None:
@@ -1639,15 +1678,47 @@ if gat_results is not None:
     device = gat_results['device']
     gat_model.eval()
     for drug in drug_info:
+        print(f"\nProcessing {drug['name']} ({drug['smiles']})")
         try:
-            pyg_data = smiles_to_pyg_data(drug['smiles'])
+            # Step 1: Try to convert SMILES to Data object
+            print("  - Attempting to convert SMILES to PyG Data object...")
+            pyg_data = smiles_to_pyg_data_rdkit(drug['smiles'])
+            if pyg_data is None:
+                print("  ❌ Conversion failed: smiles_to_pyg_data returned None.")
+                gat_probs.append(np.nan)
+                continue
+            print("  ✓ Conversion successful.")
+            print(f"    - Node feature shape: {pyg_data.x.shape}")
+            print(f"    - Edge index shape: {pyg_data.edge_index.shape}")
+            if hasattr(pyg_data, 'edge_attr') and pyg_data.edge_attr is not None:
+                print(f"    - Edge attribute shape: {pyg_data.edge_attr.shape}")
+            else:
+                print("    - No edge attributes found.")
+
+            # Step 2: Check feature compatibility
+            expected_dim = node_features_dim  # From your training set
+            actual_dim = pyg_data.x.shape[1]
+            print(f"    - Expected node feature dim: {expected_dim}, actual: {actual_dim}")
+            if actual_dim != expected_dim:
+                print(f"  ❌ Node feature dimension mismatch (expected {expected_dim}, got {actual_dim})")
+                gat_probs.append(np.nan)
+                continue
+
+            # Step 3: Prepare batch attribute for PyG
             pyg_data = pyg_data.to(device)
             pyg_data.batch = torch.zeros(pyg_data.x.shape[0], dtype=torch.long, device=device)
+            print("  ✓ Set batch attribute.")
+
+            # Step 4: Run through GAT model
+            print("  - Running model inference...")
             with torch.no_grad():
                 logits = gat_model(pyg_data.x, pyg_data.edge_index, pyg_data.batch)
+                print(f"    - Model output logits: {logits}")
                 prob = torch.sigmoid(logits.squeeze()).item()
+                print(f"    - Sigmoid(prob): {prob}")
             gat_probs.append(prob)
         except Exception as e:
+            print(f"  ❌ Exception during GAT prediction: {e}")
             gat_probs.append(np.nan)
 else:
     gat_probs = [np.nan] * 3
